@@ -1,98 +1,210 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
+import React, { useCallback } from 'react';
+import {
+  Dimensions,
+  ScrollView,
+  StyleSheet,
+  View,
+  Platform,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { useStopwatch } from '@/hooks/useStopwatch';
+import { TimerDisplay } from '@/components/TimerDisplay';
+import { GlassButton } from '@/components/GlassButton';
+import { LapRow } from '@/components/LapRow';
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
+const { width: SCREEN_W } = Dimensions.get('window');
+const BUTTON_SIZE = Math.min(82, SCREEN_W * 0.21);
+
+export default function StopwatchScreen() {
+  const {
+    state,
+    elapsed,
+    lapElapsed,
+    laps,
+    start,
+    resume,
+    pause,
+    reset,
+    recordLap,
+  } = useStopwatch();
+
+  const haptic = useCallback((style: Haptics.ImpactFeedbackStyle) => {
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(style).catch(() => {});
+    }
+  }, []);
+
+  const handleStartResume = useCallback(() => {
+    haptic(Haptics.ImpactFeedbackStyle.Medium);
+    if (state === 'idle') start();
+    else resume();
+  }, [state, start, resume, haptic]);
+
+  const handlePause = useCallback(() => {
+    haptic(Haptics.ImpactFeedbackStyle.Light);
+    pause();
+  }, [pause, haptic]);
+
+  const handleLap = useCallback(() => {
+    haptic(Haptics.ImpactFeedbackStyle.Rigid);
+    recordLap();
+  }, [recordLap, haptic]);
+
+  const handleReset = useCallback(() => {
+    haptic(Haptics.ImpactFeedbackStyle.Heavy);
+    reset();
+  }, [reset, haptic]);
+
+  // Left button: reset (when paused/idle after started) or lap (when running)
+  const leftButton = (() => {
+    if (state === 'running') {
+      return (
+        <GlassButton
+          label="Lap"
+          onPress={handleLap}
+          variant="dark"
+          size={BUTTON_SIZE}
+        />
+      );
+    }
+    if (state === 'paused') {
+      return (
+        <GlassButton
+          label="Reset"
+          onPress={handleReset}
+          variant="dark"
+          size={BUTTON_SIZE}
+        />
+      );
+    }
+    // idle
     return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
+      <GlassButton
+        label="Lap"
+        onPress={() => {}}
+        variant="dark"
+        size={BUTTON_SIZE}
+      />
     );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
+  })();
+
+  // Right button: start/stop toggle
+  const rightButton = (() => {
+    if (state === 'running') {
+      return (
+        <GlassButton
+          label="Stop"
+          onPress={handlePause}
+          variant="red"
+          size={BUTTON_SIZE}
+        />
+      );
+    }
+    return (
+      <GlassButton
+        label={state === 'paused' ? 'Start' : 'Start'}
+        onPress={handleStartResume}
+        variant="green"
+        size={BUTTON_SIZE}
+      />
+    );
+  })();
+
+  // Build the lap list rows.
+  // The first item is always the "current" running lap.
+  const currentLapNumber = laps.length + 1;
+
   return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+    <View style={styles.screen}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+        {/* ── Clock section ── */}
+        <View style={styles.clockSection}>
+          {/* Large elapsed display */}
+          <TimerDisplay ms={elapsed} />
 
-export default function HomeScreen() {
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
+          {/* Lap timer — visible once stopwatch is started */}
+          {state !== 'idle' && (
+            <View style={styles.lapTimerRow}>
+              <TimerDisplay ms={lapElapsed} secondary />
+            </View>
+          )}
+        </View>
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
+        {/* ── Control buttons ── */}
+        <View style={styles.controls}>
+          {leftButton}
+          {rightButton}
+        </View>
 
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
+        {/* ── Lap list ── */}
+        <ScrollView
+          style={styles.lapList}
+          contentContainerStyle={styles.lapListContent}
+          showsVerticalScrollIndicator={false}
+          bounces={true}
+        >
+          {/* Current running lap row (shown when running or paused with laps) */}
+          {state !== 'idle' && (
+            <LapRow
+              key="current"
+              lap={{
+                id: currentLapNumber,
+                time: elapsed,
+                lapTime: lapElapsed,
+                isBest: false,
+                isWorst: false,
+              }}
+              totalLaps={currentLapNumber}
+              isCurrentLap
+              currentLapMs={lapElapsed}
+            />
+          )}
 
-        {Platform.OS === 'web' && <WebBadge />}
+          {/* Recorded laps — newest first */}
+          {laps.map((lap) => (
+            <LapRow
+              key={lap.id}
+              lap={lap}
+              totalLaps={laps.length}
+            />
+          ))}
+        </ScrollView>
       </SafeAreaView>
-    </ThemedView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screen: {
     flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
+    backgroundColor: '#000000',
   },
   safeArea: {
     flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
   },
-  heroSection: {
+  clockSection: {
+    paddingTop: 28,
+    paddingHorizontal: 20,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
+    minHeight: 200,
+  },
+  lapTimerRow: {
+    marginTop: 4,
+  },
+  controls: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 28,
+    paddingVertical: 32,
+  },
+  lapList: {
     flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
   },
-  title: {
-    textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
+  lapListContent: {
+    paddingBottom: 24,
   },
 });
