@@ -15,7 +15,7 @@ export function LapRow({
   isCurrentLap,
   currentLapMs,
 }: LapRowProps) {
-  const lapNumber = isCurrentLap ? lap.id : totalLaps - lap.id + 1;
+  const lapNumber = lap.id;
 
   const labelColor = lap.isBest
     ? "#34C759"
